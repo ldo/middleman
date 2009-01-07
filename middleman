@@ -1,0 +1,322 @@
+#!/usr/bin/python
+#+
+# This script acts as a relay between two TCP endpoints, logging
+# everything that goes over the connection. Invoke it as follows:
+#
+#     middleman --relay=localport:remoteaddr:remoteport
+#
+# Start of development 2009 January 7 by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
+# First successful connections 2009 January 7.
+#-
+
+import sys
+import select
+import socket
+import getopt
+import random
+
+#+
+# Mainline
+#-
+
+relay = {} # indexed by local port
+maxbuf = 4096 # how much data to buffer at a time
+
+(opts, args) = getopt.getopt \
+  (
+	sys.argv[1:],
+	"",
+	["relay="]
+  )
+if len(args) != 0 :
+	raise getopt.GetoptError("no arguments expected")
+#end if
+for keyword, value in opts :
+	if keyword == "--relay" :
+		items = value.split(":")
+		if len(items) != 3 :
+			raise getopt.GetoptError("usage: --relay=localport:remoteaddr:remoteport")
+		#end if
+		localport = int(items[0])
+		remoteport = int(items[2])
+		if relay.has_key(localport) :
+			raise getopt.GetoptError("duplicate entry for local port %d" % localport)
+		#end if
+		relay[localport] = \
+			{
+				"remotehost" : items[1],
+				"remoteport" : remoteport,
+				"addrinfo" :
+					[
+						i for i in socket.getaddrinfo(items[1], remoteport)
+							if i[1] == socket.SOCK_STREAM
+					],
+				"listen" : None,
+				"connected" : [],
+			}
+		relay[localport]["inet6"] = relay[localport]["addrinfo"][0][0] == socket.AF_INET6
+	#end if
+#end for
+if len(relay) == 0 :
+	raise getopt.GetoptError("no --relay items specified")
+#end if
+
+for localport, item in relay.items() :
+	# open listeners on all local sockets
+	item["listen"] = socket.socket \
+	  (
+		(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
+		socket.SOCK_STREAM
+	  )
+	item["listen"].bind((("0.0.0.0", "::")[item["inet6"]], localport))
+	item["listen"].listen(socket.SOMAXCONN)
+#end for
+try :
+	while True :
+		# run listeners and data transfers
+		readable = []
+		writable = []
+		trouble = []
+		for item in relay.values() :
+			readable.append(item["listen"])
+			trouble.append(item["listen"])
+			for connection in item["connected"] :
+				if not connection["localeof"] and len(connection["remotebuf"]) < maxbuf :
+					readable.append(connection["local"])
+				#end if
+				if not connection["remoteeof"] and len(connection["localbuf"]) < maxbuf :
+					readable.append(connection["remote"])
+				#end if
+				if len(connection["localbuf"]) != 0 :
+					writable.append(connection["local"])
+				#end if
+				if len(connection["remotebuf"]) != 0 :
+					writable.append(connection["remote"])
+				#end if
+				trouble.append(connection["local"])
+				trouble.append(connection["remote"])
+			#end for
+		#end for
+		(readable, writable, trouble) = select.select(readable, writable, trouble)
+		readable = set(readable)
+		writable = set(writable)
+		trouble = set(trouble)
+		# NYI check for trouble
+		for localport, item in relay.items() :
+		  # give highest priority to writes
+			new_connected = []
+			for connection in item["connected"] :
+				connection_ok = True # initial assumption
+				if connection["local"] in writable :
+					try :
+						nrbytes = connection["local"].send(connection["localbuf"])
+					except socket.error, (ErrNo, Msg) :
+						sys.stderr.write \
+						  (
+							"%05d!error %d -- %s writing to local\n" % (localport, ErrNo, Msg)
+						  )
+						nrbytes = None
+					#end try
+					if nrbytes != None :
+						connection["localbuf"] = connection["localbuf"][nrbytes:]
+					else :
+						connection_ok = False
+					#end if
+				#end if
+				if connection["remote"] in writable :
+					try :
+						nrbytes = connection["remote"].send(connection["remotebuf"])
+					except socket.error, (ErrNo, Msg) :
+						sys.stderr.write \
+						  (
+							"%05d!error %d -- %s writing to remote\n" % (localport, ErrNo, Msg)
+						  )
+						nrbytes = None
+					#end try
+					if nrbytes != None :
+						connection["remotebuf"] = connection["remotebuf"][nrbytes:]
+					else :
+						connection_ok = False
+					#end if
+				#end if
+				if connection_ok :
+					new_connected.append(connection)
+				else :
+					connection["local"].close()
+					connection["remote"].close()
+				#end if
+			#end for
+			item["connected"] = new_connected
+		#end for
+		for localport, item in relay.items() :
+		  # give next priority to reads
+			new_connected = []
+			for connection in item["connected"] :
+				connection_ok = True # initial assumption
+				if connection["local"] in readable :
+					try :
+						data = connection["local"].recv(maxbuf - len(connection["remotebuf"]))
+					except socket.error, (ErrNo, Msg) :
+						sys.stderr.write \
+						  (
+							"%05d!error %d -- %s reading from local\n" % (localport, ErrNo, Msg)
+						  )
+						data = None
+					#end try
+					if data != None :
+						if len(data) != 0 :
+							continued = len(connection["remotebuf"]) != 0 and connection["remotebuf"][-1] != "\n"
+							connection["remotebuf"] += data
+							while True :
+								pos = data.find("\n")
+								if pos < 0 :
+									pos = len(data)
+								else :
+									pos += 1
+								#end if
+								line = data[:pos]
+								data = data[pos:]
+								if not continued :
+									sys.stdout.write("%05d>" % localport)
+								#end if
+								sys.stdout.write(line)
+								continued = False
+								if len(data) == 0 :
+									break
+							#end while
+						else :
+							if continued :
+								sys.stdout.write("\n")
+							#end if
+							sys.stdout.write("%05d:local EOF\n" % localport)
+							connection["localeof"] = True
+						#end if
+					else :
+						connection_ok = False
+					#end if
+				#end if
+				if connection["remote"] in readable :
+					try :
+						data = connection["remote"].recv(maxbuf - len(connection["localbuf"]))
+					except socket.error, (ErrNo, Msg) :
+						sys.stderr.write \
+						  (
+							"%05d!error %d -- %s reading from remote\n" % (localport, ErrNo, Msg)
+						  )
+						data = None
+					#end try
+					if data != None :
+						if len(data) != 0 :
+							continued = len(connection["localbuf"]) != 0 and connection["localbuf"][-1] != "\n"
+							connection["localbuf"] += data
+							while True :
+								pos = data.find("\n")
+								if pos < 0 :
+									pos = len(data)
+								else :
+									pos += 1
+								#end if
+								line = data[:pos]
+								data = data[pos:]
+								if not continued :
+									sys.stdout.write("%05d<" % localport)
+								#end if
+								sys.stdout.write(line)
+								continued = False
+								if len(data) == 0 :
+									break
+							#end while
+						else :
+							if continued :
+								sys.stdout.write("\n")
+							#end if
+							sys.stdout.write("%05d:remote EOF\n" % localport)
+							connection["remoteeof"] = True
+						#end if
+					else :
+						connection_ok = False
+					#end if
+				#end if
+				if (
+						connection_ok
+					and
+						not
+							(
+								connection["localeof"]
+							and
+								connection["remoteeof"]
+							and
+								len(connection["localbuf"]) == 0
+							and
+								len(connection["remotebuf"]) == 0
+							)
+				) :
+					new_connected.append(connection)
+				else :
+					connection["local"].close()
+					connection["remote"].close()
+				#end if
+			#end for
+			item["connected"] = new_connected
+		#end for
+		for localport, item in relay.items() :
+		  # give lowest priority to accepting new connections
+			if item["listen"] in readable :
+				(local, addr) = item["listen"].accept()
+				sys.stderr.write \
+				  (
+					"%05d:connect from %s\n" % (localport, addr)
+				  )
+				connection = \
+					{
+						"local" : local,
+						"localbuf" : "",
+						"remotebuf" : "",
+						"localeof" : False,
+						"remoteeof" : False,
+					}
+				addrinfo_totry = list(item["addrinfo"])
+				random.shuffle(addrinfo_totry)
+				addrinfo_totry = iter(addrinfo_totry)
+				remote = socket.socket \
+				  (
+					(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
+					socket.SOCK_STREAM
+				  )
+				while True :
+					try :
+						addrinfo = addrinfo_totry.next()
+					except StopIteration :
+						raise RuntimeError \
+						  (
+							"can't open %s:%d" % (item["remotehost"], item["remoteport"])
+						  )
+					#end try
+					try :
+						remote.connect(addrinfo[4])
+						connection["remote"] = remote
+						break
+					except socket.error, (ErrNo, Msg) :
+						sys.stderr.write \
+						  (
+							"%05d!error %d -- %s connecting to %s\n" % (localport, ErrNo, Msg, repr(addrinfo))
+						  )
+					#end try
+				#end while
+				item["connected"].append(connection)
+			#end if
+		#end for
+	#end while
+except KeyboardInterrupt :
+	pass
+#end try
+for item in relay.values() :
+	# shut everything down
+	for connection in item["connected"] :
+		connection["local"].close()
+		connection["remote"].close()
+	#end for
+	if item["listen"] !=  None :
+		item["listen"].close()
+	#end if
+#end for
