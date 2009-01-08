@@ -119,6 +119,10 @@ try :
 					#end try
 					if nrbytes != None :
 						connection["localbuf"] = connection["localbuf"][nrbytes:]
+						if len(connection["localbuf"]) == 0 and connection["remoteeof"] :
+							connection["local"].shutdown(socket.SHUT_WR) # send EOF to local end
+							connection["localwriteend"] = True
+						#end if
 					else :
 						connection_ok = False
 					#end if
@@ -135,6 +139,10 @@ try :
 					#end try
 					if nrbytes != None :
 						connection["remotebuf"] = connection["remotebuf"][nrbytes:]
+						if len(connection["remotebuf"]) == 0 and connection["localeof"] :
+							connection["remote"].shutdown(socket.SHUT_WR) # send EOF to remote end
+							connection["remotewriteend"] = True
+						#end if
 					else :
 						connection_ok = False
 					#end if
@@ -172,7 +180,7 @@ try :
 								if pos < 0 :
 									pos = len(data)
 								else :
-									pos += 1
+									pos += 1 # include newline
 								#end if
 								line = data[:pos]
 								data = data[pos:]
@@ -189,6 +197,10 @@ try :
 								sys.stdout.write("\n")
 							#end if
 							sys.stdout.write("%05d:local EOF\n" % localport)
+							if len(connection["remotebuf"]) == 0 :
+								connection["remote"].shutdown(socket.SHUT_WR) # send EOF to remote end
+								connection["remotewriteend"] = True
+							#end if
 							connection["localeof"] = True
 						#end if
 					else :
@@ -214,7 +226,7 @@ try :
 								if pos < 0 :
 									pos = len(data)
 								else :
-									pos += 1
+									pos += 1 # include newline
 								#end if
 								line = data[:pos]
 								data = data[pos:]
@@ -231,6 +243,10 @@ try :
 								sys.stdout.write("\n")
 							#end if
 							sys.stdout.write("%05d:remote EOF\n" % localport)
+							if len(connection["localbuf"]) == 0 :
+								connection["local"].shutdown(socket.SHUT_WR) # send EOF to local end
+								connection["localwriteend"] = True
+							#end if
 							connection["remoteeof"] = True
 						#end if
 					else :
@@ -273,7 +289,9 @@ try :
 						"localbuf" : "",
 						"remotebuf" : "",
 						"localeof" : False,
+						"localwriteend" : False,
 						"remoteeof" : False,
+						"remotewriteend" : False,
 					}
 				addrinfo_totry = list(item["addrinfo"])
 				random.shuffle(addrinfo_totry)
