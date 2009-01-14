@@ -16,11 +16,34 @@ import getopt
 import random
 
 #+
+# Connection management
+#-
+
+relay = {} # indexed by local port, values are dictionaries
+  # keys in each value dictionary:
+  #     listen -- socket to listen on for local connection attempts
+  #     remotehost -- remote host name/address to connect to (informational)
+  #     remoteport -- remote port to connect to (informational)
+  #     addrinfo -- expanded list of alternative remote protocol addresses to connect to
+  #     inet6 -- True if connections use IPv6, False for IPv4
+  #     connected -- list of opened connections to this host/port
+  #
+  # Each entry in relay[port]["connected"] is a dictionary with keys as follows:
+  #     local -- socket for local connection
+  #     remote -- socket for remote connection
+  #     localbuf -- data awaiting writing to local socket
+  #     remotebuf -- data awaiting writing to remote socket
+  #     localeof -- whether EOF has been seen on local socket
+  #     localwriteend -- whether EOF has been sent to local socket (not needed?)
+  #     remoteeof -- whether EOF has been seen on remote socket
+  #     remotewriteend -- whether EOF has been sent to remote socket (not needed?)
+
+maxbuf = 4096 # how much data to buffer at a time
+
+#+
 # Mainline
 #-
 
-relay = {} # indexed by local port
-maxbuf = 4096 # how much data to buffer at a time
 
 (opts, args) = getopt.getopt \
   (
@@ -48,13 +71,14 @@ for keyword, value in opts :
 				"remoteport" : remoteport,
 				"addrinfo" :
 					[
-						i for i in socket.getaddrinfo(items[1], remoteport)
+						i[4] for i in socket.getaddrinfo(items[1], remoteport)
 							if i[1] == socket.SOCK_STREAM
 					],
 				"listen" : None,
 				"connected" : [],
 			}
 		relay[localport]["inet6"] = relay[localport]["addrinfo"][0][0] == socket.AF_INET6
+		  # assuming I won't get a mixture of v4 and v6!
 	#end if
 #end for
 if len(relay) == 0 :
@@ -173,12 +197,17 @@ try :
 					#end try
 					if data != None :
 						if len(data) != 0 :
-							continued = len(connection["remotebuf"]) != 0 and connection["remotebuf"][-1] != "\n"
+							continued = \
+								(
+									len(connection["remotebuf"]) != 0
+								and
+									connection["remotebuf"][-1] != "\n"
+								)
 							connection["remotebuf"] += data
 							while True :
 								pos = data.find("\n")
 								if pos < 0 :
-									pos = len(data)
+									pos = len(data) # all remaining data
 								else :
 									pos += 1 # include newline
 								#end if
@@ -224,7 +253,7 @@ try :
 							while True :
 								pos = data.find("\n")
 								if pos < 0 :
-									pos = len(data)
+									pos = len(data) # all remaining data
 								else :
 									pos += 1 # include newline
 								#end if
@@ -311,7 +340,7 @@ try :
 						  )
 					#end try
 					try :
-						remote.connect(addrinfo[4])
+						remote.connect(addrinfo)
 						connection["remote"] = remote
 						break
 					except socket.error, (ErrNo, Msg) :
