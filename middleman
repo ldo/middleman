@@ -56,7 +56,19 @@ if len(args) != 0 :
 #end if
 for keyword, value in opts :
 	if keyword == "--relay" :
-		items = value.split(":")
+		if hasattr(value, "partition") :
+			# allow for embedded colons in an IPv6 address
+			value = value.partition(":")
+			items = () # in case of parse failure
+			if value[1] == ":" :
+				value = (value[0],) + value[2].rpartition(":")
+				if value[2] == ":" :
+					items = (value[0], value[1].lstrip("[").rstrip("]"), value[3])
+				#end if
+			#end if
+		else :
+			items = value.split(":")
+		#end if
 		if len(items) != 3 :
 			raise getopt.GetoptError("usage: --relay=localport:remoteaddr:remoteport")
 		#end if
@@ -133,14 +145,17 @@ try :
 						except socket.error, (ErrNo, Msg) :
 							sys.stderr.write \
 							  (
-								"%05d!error %d -- %s writing to %s\n" % (localport, ErrNo, Msg, this)
+									"%05d!error %d -- %s writing to %s\n"
+								%
+									(localport, ErrNo, Msg, this)
 							  )
 							nrbytes = None
 						#end try
 						if nrbytes != None :
 							connection[this]["buf"] = connection[this]["buf"][nrbytes:]
 							if len(connection[this]["buf"]) == 0 and connection[other]["eof"] :
-								connection[this]["socket"].shutdown(socket.SHUT_WR) # send EOF to this end
+								connection[this]["socket"].shutdown(socket.SHUT_WR)
+								  # forward delayed EOF to this end
 								connection[this]["writeend"] = True
 							#end if
 						else :
@@ -172,7 +187,9 @@ try :
 						except socket.error, (ErrNo, Msg) :
 							sys.stderr.write \
 							  (
-								"%05d!error %d -- %s reading from %s\n" % (localport, ErrNo, Msg, this)
+									"%05d!error %d -- %s reading from %s\n"
+								%
+									(localport, ErrNo, Msg, this)
 							  )
 							data = None
 						#end try
@@ -211,8 +228,10 @@ try :
 								#end if
 								sys.stdout.write("%05d:%s EOF\n" % (localport, this))
 								if len(connection[other]["buf"]) == 0 :
-									connection[other]["socket"].shutdown(socket.SHUT_WR) # forward EOF to other end
+									connection[other]["socket"].shutdown(socket.SHUT_WR)
+									  # forward EOF to other end
 									connection[other]["writeend"] = True
+								# else wait until buf is emptied before forwarding EOF
 								#end if
 								connection[this]["eof"] = True
 							#end if
