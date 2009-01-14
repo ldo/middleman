@@ -44,18 +44,20 @@ directions = (("local", "remote"), ("remote", "local"))
 # Mainline
 #-
 
-
 (opts, args) = getopt.getopt \
   (
 	sys.argv[1:],
 	"",
-	["relay="]
+	["external", "relay="]
   )
 if len(args) != 0 :
 	raise getopt.GetoptError("no arguments expected")
 #end if
+loopback_only = True
 for keyword, value in opts :
-	if keyword == "--relay" :
+	if keyword == "--external" :
+		loopback_only = False
+	elif keyword == "--relay" :
 		if hasattr(value, "partition") :
 			# allow for embedded colons in an IPv6 address
 			value = value.partition(":")
@@ -104,7 +106,13 @@ for localport, item in relay.items() :
 		(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
 		socket.SOCK_STREAM
 	  )
-	item["listen"].bind((("0.0.0.0", "::")[item["inet6"]], localport))
+	item["listen"].bind \
+	  (
+		(
+			(("0.0.0.0", "127.0.0.1")[loopback_only], ("::", "::1")[loopback_only])[item["inet6"]],
+			localport,
+		)
+	  )
 	item["listen"].listen(socket.SOMAXCONN)
 #end for
 try :
