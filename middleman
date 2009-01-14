@@ -39,6 +39,8 @@ relay = {} # indexed by local port, values are dictionaries
 
 maxbuf = 4096 # how much data to buffer at a time
 
+directions = (("local", "remote"), ("remote", "local"))
+
 #+
 # Mainline
 #-
@@ -104,20 +106,15 @@ try :
 			readable.append(item["listen"])
 			trouble.append(item["listen"])
 			for connection in item["connected"] :
-				if not connection["local"]["eof"] and len(connection["remote"]["buf"]) < maxbuf :
-					readable.append(connection["local"]["socket"])
-				#end if
-				if not connection["remote"]["eof"] and len(connection["local"]["buf"]) < maxbuf :
-					readable.append(connection["remote"]["socket"])
-				#end if
-				if len(connection["local"]["buf"]) != 0 :
-					writable.append(connection["local"]["socket"])
-				#end if
-				if len(connection["remote"]["buf"]) != 0 :
-					writable.append(connection["remote"]["socket"])
-				#end if
-				trouble.append(connection["local"]["socket"])
-				trouble.append(connection["remote"]["socket"])
+				for (this, other) in directions :
+					if not connection[this]["eof"] and len(connection[other]["buf"]) < maxbuf :
+						readable.append(connection[this]["socket"])
+					#end if
+					if len(connection[this]["buf"]) != 0 :
+						writable.append(connection[this]["socket"])
+					#end if
+					trouble.append(connection[this]["socket"])
+				#end for
 			#end for
 		#end for
 		(readable, writable, trouble) = select.select(readable, writable, trouble)
@@ -130,46 +127,28 @@ try :
 			new_connected = []
 			for connection in item["connected"] :
 				connection_ok = True # initial assumption
-				if connection["local"]["socket"] in writable :
-					try :
-						nrbytes = connection["local"]["socket"].send(connection["local"]["buf"])
-					except socket.error, (ErrNo, Msg) :
-						sys.stderr.write \
-						  (
-							"%05d!error %d -- %s writing to local\n" % (localport, ErrNo, Msg)
-						  )
-						nrbytes = None
-					#end try
-					if nrbytes != None :
-						connection["local"]["buf"] = connection["local"]["buf"][nrbytes:]
-						if len(connection["local"]["buf"]) == 0 and connection["remote"]["eof"] :
-							connection["local"]["socket"].shutdown(socket.SHUT_WR) # send EOF to local end
-							connection["local"]["writeend"] = True
+				for (this, other) in directions :
+					if connection[this]["socket"] in writable :
+						try :
+							nrbytes = connection[this]["socket"].send(connection[this]["buf"])
+						except socket.error, (ErrNo, Msg) :
+							sys.stderr.write \
+							  (
+								"%05d!error %d -- %s writing to %s\n" % (localport, ErrNo, Msg, this)
+							  )
+							nrbytes = None
+						#end try
+						if nrbytes != None :
+							connection[this]["buf"] = connection[this]["buf"][nrbytes:]
+							if len(connection[this]["buf"]) == 0 and connection[other]["eof"] :
+								connection[this]["socket"].shutdown(socket.SHUT_WR) # send EOF to this end
+								connection[this]["writeend"] = True
+							#end if
+						else :
+							connection_ok = False
 						#end if
-					else :
-						connection_ok = False
 					#end if
-				#end if
-				if connection["remote"]["socket"] in writable :
-					try :
-						nrbytes = connection["remote"]["socket"].send(connection["remote"]["buf"])
-					except socket.error, (ErrNo, Msg) :
-						sys.stderr.write \
-						  (
-							"%05d!error %d -- %s writing to remote\n" % (localport, ErrNo, Msg)
-						  )
-						nrbytes = None
-					#end try
-					if nrbytes != None :
-						connection["remote"]["buf"] = connection["remote"]["buf"][nrbytes:]
-						if len(connection["remote"]["buf"]) == 0 and connection["local"]["eof"] :
-							connection["remote"]["socket"].shutdown(socket.SHUT_WR) # send EOF to remote end
-							connection["remote"]["writeend"] = True
-						#end if
-					else :
-						connection_ok = False
-					#end if
-				#end if
+				#end for
 				if connection_ok :
 					new_connected.append(connection)
 				else :
@@ -184,103 +163,65 @@ try :
 			new_connected = []
 			for connection in item["connected"] :
 				connection_ok = True # initial assumption
-				if connection["local"]["socket"] in readable :
-					try :
-						data = connection["local"]["socket"].recv(maxbuf - len(connection["remote"]["buf"]))
-					except socket.error, (ErrNo, Msg) :
-						sys.stderr.write \
-						  (
-							"%05d!error %d -- %s reading from local\n" % (localport, ErrNo, Msg)
-						  )
-						data = None
-					#end try
-					if data != None :
-						if len(data) != 0 :
-							continued = \
-								(
-									len(connection["remote"]["buf"]) != 0
-								and
-									connection["remote"]["buf"][-1] != "\n"
-								)
-							connection["remote"]["buf"] += data
-							while True :
-								pos = data.find("\n")
-								if pos < 0 :
-									pos = len(data) # all remaining data
-								else :
-									pos += 1 # include newline
+				for (this, other) in directions :
+					if connection[this]["socket"] in readable :
+						try :
+							data = connection[this]["socket"].recv \
+							  (
+								maxbuf - len(connection[other]["buf"])
+							  )
+						except socket.error, (ErrNo, Msg) :
+							sys.stderr.write \
+							  (
+								"%05d!error %d -- %s reading from %s\n" % (localport, ErrNo, Msg, this)
+							  )
+							data = None
+						#end try
+						if data != None :
+							if len(data) != 0 :
+								continued = \
+									(
+										len(connection[other]["buf"]) != 0
+									and
+										connection[other]["buf"][-1] != "\n"
+									)
+								connection[other]["buf"] += data
+								while True :
+									pos = data.find("\n")
+									if pos < 0 :
+										pos = len(data) # all remaining data
+									else :
+										pos += 1 # include newline
+									#end if
+									line = data[:pos]
+									data = data[pos:]
+									if not continued :
+										sys.stdout.write \
+										  (
+											"%05d%s" % (localport, ("<", ">")[this == "local"])
+										  )
+									#end if
+									sys.stdout.write(line)
+									continued = False
+									if len(data) == 0 :
+										break
+								#end while
+							else :
+								if continued :
+									sys.stdout.write("\n")
 								#end if
-								line = data[:pos]
-								data = data[pos:]
-								if not continued :
-									sys.stdout.write("%05d>" % localport)
+								sys.stdout.write("%05d:%s EOF\n" % (localport, this))
+								if len(connection[other]["buf"]) == 0 :
+									connection[other]["socket"].shutdown(socket.SHUT_WR) # forward EOF to other end
+									connection[other]["writeend"] = True
 								#end if
-								sys.stdout.write(line)
-								continued = False
-								if len(data) == 0 :
-									break
-							#end while
+								connection[this]["eof"] = True
+							#end if
 						else :
-							if continued :
-								sys.stdout.write("\n")
-							#end if
-							sys.stdout.write("%05d:local EOF\n" % localport)
-							if len(connection["remote"]["buf"]) == 0 :
-								connection["remote"]["socket"].shutdown(socket.SHUT_WR) # send EOF to remote end
-								connection["remote"]["writeend"] = True
-							#end if
-							connection["local"]["eof"] = True
+							connection_ok = False
 						#end if
-					else :
-						connection_ok = False
 					#end if
-				#end if
-				if connection["remote"]["socket"] in readable :
-					try :
-						data = connection["remote"]["socket"].recv(maxbuf - len(connection["local"]["buf"]))
-					except socket.error, (ErrNo, Msg) :
-						sys.stderr.write \
-						  (
-							"%05d!error %d -- %s reading from remote\n" % (localport, ErrNo, Msg)
-						  )
-						data = None
-					#end try
-					if data != None :
-						if len(data) != 0 :
-							continued = len(connection["local"]["buf"]) != 0 and connection["local"]["buf"][-1] != "\n"
-							connection["local"]["buf"] += data
-							while True :
-								pos = data.find("\n")
-								if pos < 0 :
-									pos = len(data) # all remaining data
-								else :
-									pos += 1 # include newline
-								#end if
-								line = data[:pos]
-								data = data[pos:]
-								if not continued :
-									sys.stdout.write("%05d<" % localport)
-								#end if
-								sys.stdout.write(line)
-								continued = False
-								if len(data) == 0 :
-									break
-							#end while
-						else :
-							if continued :
-								sys.stdout.write("\n")
-							#end if
-							sys.stdout.write("%05d:remote EOF\n" % localport)
-							if len(connection["local"]["buf"]) == 0 :
-								connection["local"]["socket"].shutdown(socket.SHUT_WR) # send EOF to local end
-								connection["local"]["writeend"] = True
-							#end if
-							connection["remote"]["eof"] = True
-						#end if
-					else :
-						connection_ok = False
-					#end if
-				#end if
+				#end for
 				if (
 						connection_ok
 					and
@@ -297,6 +238,7 @@ try :
 				) :
 					new_connected.append(connection)
 				else :
+					# EOF sent and received in both directions, nothing further to do
 					connection["local"]["socket"].close()
 					connection["remote"]["socket"].close()
 				#end if
@@ -351,7 +293,9 @@ try :
 					except socket.error, (ErrNo, Msg) :
 						sys.stderr.write \
 						  (
-							"%05d!error %d -- %s connecting to %s\n" % (localport, ErrNo, Msg, repr(addrinfo))
+								"%05d!error %d -- %s connecting to %s\n"
+							%
+								(localport, ErrNo, Msg, repr(addrinfo))
 						  )
 					#end try
 				#end while
