@@ -5,8 +5,7 @@
 #
 #     middleman --relay=localport:remoteaddr:remoteport
 #
-# Start of development 2009 January 7 by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
-# First successful connections 2009 January 7.
+# Created by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
 #-
 
 import sys
@@ -72,7 +71,7 @@ for keyword, value in opts :
 				"remoteport" : remoteport,
 				"addrinfo" :
 					[
-						i[4] for i in socket.getaddrinfo(items[1], remoteport)
+						i for i in socket.getaddrinfo(items[1], remoteport)
 							if i[1] == socket.SOCK_STREAM
 					],
 				"listen" : None,
@@ -288,7 +287,7 @@ try :
 						  )
 					#end try
 					try :
-						remote.connect(addrinfo)
+						remote.connect(addrinfo[4])
 						break
 					except socket.error, (ErrNo, Msg) :
 						sys.stderr.write \
