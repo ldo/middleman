@@ -9,10 +9,12 @@
 #-
 
 import sys
+import time
 import select
 import socket
-import getopt
 import random
+import quopri
+import getopt
 
 #+
 # Connection management
@@ -28,6 +30,7 @@ relay = {} # indexed by local port, values are dictionaries
   #     connected -- list of opened connections to this host/port
   #
   # Each entry in relay[port]["connected"] is a dictionary with keys as follows:
+  #     addr -- remote connection address (informational)
   #     local -- context for local connection
   #     remote -- context for remote connection
   # Each context object is a dictionary with keys as follows:
@@ -39,6 +42,37 @@ relay = {} # indexed by local port, values are dictionaries
 maxbuf = 4096 # how much data to buffer at a time
 
 directions = (("local", "remote"), ("remote", "local"))
+  # for iterating over connection directions
+
+def logprefix(localport, remoteaddr) :
+	"""returns a common prefix for logfile lines, including a timestamp."""
+	now = time.time()
+	return \
+		(
+			"%.6f:%d/%s:%d"
+		%
+			(now, localport, remoteaddr[0], remoteaddr[1])
+		)
+#end logprefix
+
+def logdata(localport, remoteaddr, outgoing, data) :
+	"""logs data passing through a connection, with readable representation of
+	non-printable characters."""
+	log = sys.stdout
+	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
+	for line in quopri.encodestring(data).split("\n") :
+		log.write(prefix + line + "\n")
+	#end for
+#end logdata
+
+def logdiag(localport, remoteaddr, data) :
+	"""logs a diagnostic message concerning a connection."""
+	log = sys.stdout
+	prefix = logprefix(localport, remoteaddr) + "!"
+	for line in data.rstrip("\n").split("\n") :
+		log.write(prefix + line + "\n")
+	#end for
+#end logdiag
 
 #+
 # Mainline
@@ -151,11 +185,13 @@ try :
 						try :
 							nrbytes = connection[this]["socket"].send(connection[this]["buf"])
 						except socket.error, (ErrNo, Msg) :
-							sys.stderr.write \
+							logdiag \
 							  (
-									"%05d!error %d -- %s writing to %s\n"
+								localport,
+								connection["addr"],
+									"error %d -- %s writing to %s"
 								%
-									(localport, ErrNo, Msg, this)
+									(ErrNo, Msg, this)
 							  )
 							nrbytes = None
 						#end try
@@ -193,48 +229,22 @@ try :
 								maxbuf - len(connection[other]["buf"])
 							  )
 						except socket.error, (ErrNo, Msg) :
-							sys.stderr.write \
+							logdiag \
 							  (
-									"%05d!error %d -- %s reading from %s\n"
+								localport,
+								connection["addr"],
+									"error %d -- %s reading from %s"
 								%
-									(localport, ErrNo, Msg, this)
+									(ErrNo, Msg, this)
 							  )
 							data = None
 						#end try
 						if data != None :
 							if len(data) != 0 :
-								continued = \
-									(
-										len(connection[other]["buf"]) != 0
-									and
-										connection[other]["buf"][-1] != "\n"
-									)
 								connection[other]["buf"] += data
-								while True :
-									pos = data.find("\n")
-									if pos < 0 :
-										pos = len(data) # all remaining data
-									else :
-										pos += 1 # include newline
-									#end if
-									line = data[:pos]
-									data = data[pos:]
-									if not continued :
-										sys.stdout.write \
-										  (
-											"%05d%s" % (localport, ("<", ">")[this == "local"])
-										  )
-									#end if
-									sys.stdout.write(line)
-									continued = False
-									if len(data) == 0 :
-										break
-								#end while
+								logdata(localport, connection["addr"], this == "local", data)
 							else :
-								if continued :
-									sys.stdout.write("\n")
-								#end if
-								sys.stdout.write("%05d:%s EOF\n" % (localport, this))
+								logdiag(localport, connection["addr"], "%s EOF" % this)
 								if len(connection[other]["buf"]) == 0 :
 									connection[other]["socket"].shutdown(socket.SHUT_WR)
 									  # forward EOF to other end
@@ -275,10 +285,7 @@ try :
 		  # give lowest priority to accepting new connections
 			if item["listen"] in readable :
 				(local, addr) = item["listen"].accept()
-				sys.stderr.write \
-				  (
-					"%05d:connect from %s\n" % (localport, addr)
-				  )
+				logdiag(localport, addr, "connect")
 				remote = socket.socket \
 				  (
 					(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
@@ -286,6 +293,7 @@ try :
 				  )
 				connection = \
 					{
+						"addr" : addr,
 						"local" :
 							{
 								"socket" : local,
@@ -317,11 +325,13 @@ try :
 						remote.connect(addrinfo[4])
 						break
 					except socket.error, (ErrNo, Msg) :
-						sys.stderr.write \
+						logdiag \
 						  (
-								"%05d!error %d -- %s connecting to %s\n"
+							localport,
+							addr,
+								"error %d -- %s connecting to %s"
 							%
-								(localport, ErrNo, Msg, repr(addrinfo))
+								(ErrNo, Msg, repr(addrinfo))
 						  )
 					#end try
 				#end while
