@@ -60,7 +60,7 @@ def logdata(localport, remoteaddr, outgoing, data) :
 	non-printable characters."""
 	log = sys.stdout
 	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
-	for line in quopri.encodestring(data).split("\n") :
+	for line in quopri.encodestring(data).replace("\015", "=0D").split("\n") :
 		log.write(prefix + line + "\n")
 	#end for
 #end logdata
@@ -275,6 +275,7 @@ try :
 					new_connected.append(connection)
 				else :
 					# EOF sent and received in both directions, nothing further to do
+					logdiag(localport, connection["addr"], "close")
 					connection["local"]["socket"].close()
 					connection["remote"]["socket"].close()
 				#end if
