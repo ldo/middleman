@@ -3,7 +3,20 @@
 # This script acts as a relay between two TCP endpoints, logging
 # everything that goes over the connection. Invoke it as follows:
 #
-#     middleman --relay=localport:remoteaddr:remoteport
+#     middleman [--external] relayspec [relayspec...]
+#
+# where each relayspec is of the form
+#
+#     --relay=localport:remoteaddr:remoteport
+#
+# where localport is the local port to listen on for connections,
+# and remoteaddr and remoteport specify the host and port to relay
+# the connection to. --external indicates that local ports should be
+# opened on network interfaces visible to other machines; if omitted,
+# they are opened only on the loopback interface.
+#
+# All data transmitted in both directions on a connection are logged
+# to standard output.
 #
 # Created by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
 #-
@@ -60,9 +73,20 @@ def logdata(localport, remoteaddr, outgoing, data) :
 	non-printable characters."""
 	log = sys.stdout
 	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
-	for line in quopri.encodestring(data).replace("\015", "=0D").split("\n") :
-		log.write(prefix + line + "\n")
-	#end for
+	data = quopri.encodestring(data).replace("\015", "=0D")
+	  # quopri doesn't encode carriage returns
+	while len(data) != 0 :
+		pos = data.find("\n")
+		if pos < 0 :
+			data += "=\n" # no newline, add soft newline
+			pos = len(data)
+		else :
+			pos += 1 # include newline
+		#end if
+		line = data[:pos]
+		data = data[pos:]
+		log.write(prefix + line)
+	#end while
 #end logdata
 
 def logdiag(localport, remoteaddr, data) :
