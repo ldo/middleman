@@ -79,6 +79,7 @@ relay = {} # indexed by local port, values are dictionaries
   #     eof -- whether EOF has been received
   #     writeend -- whether EOF has been sent (not needed?)
 
+log = sys.stdout # where to write logfile
 maxbuf = 4096 # how much data to buffer at a time
 
 directions = (("local", "remote"), ("remote", "local"))
@@ -98,7 +99,6 @@ def logprefix(localport, remoteaddr) :
 def logdata(localport, remoteaddr, outgoing, data) :
 	"""logs data passing through a connection, with readable representation of
 	non-printable characters."""
-	log = sys.stdout
 	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
 	data = quopri.encodestring(data).replace("\015", "=0D")
 	  # quopri doesn't encode carriage returns
@@ -118,7 +118,6 @@ def logdata(localport, remoteaddr, outgoing, data) :
 
 def logdiag(localport, remoteaddr, data) :
 	"""logs a diagnostic message concerning a connection."""
-	log = sys.stdout
 	prefix = logprefix(localport, remoteaddr) + "!"
 	for line in data.rstrip("\n").split("\n") :
 		log.write(prefix + line + "\n")
@@ -164,7 +163,8 @@ def run_connections() :
 					#end for
 				#end for
 			#end for
-			(readable, writable, trouble) = select.select(readable, writable, trouble)
+			(readable, writable, trouble) = select.select(readable, writable, trouble, 5.0)
+			log.flush() # in case of abort
 			readable = set(readable)
 			writable = set(writable)
 			trouble = set(trouble)
