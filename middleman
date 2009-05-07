@@ -100,7 +100,7 @@ def logdata(localport, remoteaddr, outgoing, data) :
 	"""logs data passing through a connection, with readable representation of
 	non-printable characters."""
 	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
-	data = quopri.encodestring(data).replace("\015", "=0D")
+	data = quopri.encodestring(data).replace("=\015\012", "=\n").replace("\015", "=0D")
 	  # quopri doesn't encode carriage returns
 	while len(data) != 0 :
 		pos = data.find("\n")
