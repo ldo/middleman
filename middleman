@@ -178,14 +178,14 @@ def run_connections() :
                         if connection[this]["socket"] in writable :
                             try :
                                 nrbytes = connection[this]["socket"].send(connection[this]["buf"])
-                            except socket.error, (ErrNo, Msg) :
+                            except socket.error as err :
                                 logdiag \
                                   (
                                     localport,
                                     connection["addr"],
                                         "error %d -- %s writing to %s"
                                     %
-                                        (ErrNo, Msg, this)
+                                        (err.errno, err.strerror, this)
                                   )
                                 nrbytes = None
                             #end try
@@ -222,14 +222,14 @@ def run_connections() :
                                   (
                                     maxbuf - len(connection[other]["buf"])
                                   )
-                            except socket.error, (ErrNo, Msg) :
+                            except socket.error as err :
                                 logdiag \
                                   (
                                     localport,
                                     connection["addr"],
                                         "error %d -- %s reading from %s"
                                     %
-                                        (ErrNo, Msg, this)
+                                        (err.errno, err.strerror, this)
                                   )
                                 data = None
                             #end try
@@ -319,14 +319,14 @@ def run_connections() :
                         try :
                             remote.connect(addrinfo[4])
                             break
-                        except socket.error, (ErrNo, Msg) :
+                        except socket.error as err :
                             logdiag \
                               (
                                 localport,
                                 addr,
                                     "error %d -- %s connecting to %s"
                                 %
-                                    (ErrNo, Msg, repr(addrinfo))
+                                    (err.errno, err.strerror, repr(addrinfo))
                               )
                         #end try
                     #end while
