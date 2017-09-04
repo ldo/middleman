@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #+
 # This script acts as a relay between two TCP endpoints, logging
 # everything that goes over the connection. Invoke it in logging
@@ -101,7 +101,7 @@ def logdata(localport, remoteaddr, outgoing, data) :
     """logs data passing through a connection, with readable representation of
     non-printable characters."""
     prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
-    data = quopri.encodestring(data).replace("=\015\012", "=\n").replace("\015", "=0D")
+    data = quopri.encodestring(data).decode().replace("=\015\012", "=\n").replace("\015", "=0D")
       # quopri doesn't encode carriage returns
     while len(data) != 0 :
         pos = data.find("\n")
@@ -293,14 +293,14 @@ def run_connections() :
                             "local" :
                                 {
                                     "socket" : local,
-                                    "buf" : "",
+                                    "buf" : b"",
                                     "eof" : False,
                                     "writeend" : False,
                                 },
                             "remote" :
                                 {
                                     "socket" : remote,
-                                    "buf" : "",
+                                    "buf" : b"",
                                     "eof" : False,
                                     "writeend" : False,
                                 },
@@ -423,7 +423,7 @@ def do_extractions(fromfile) :
                 #end if
             #end while
             if match :
-                sys.stdout.write(quopri.decodestring(items["data"]))
+                sys.stdout.write(quopri.decodestring(items["data"]).decode())
             #end if
         #end if
     #end for
