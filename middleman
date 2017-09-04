@@ -44,7 +44,8 @@
 # logfile is the name of the file to read; if omitted, the
 # extraction is performed on standard input.
 #
-# Created by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
+# Copyright 2009-2017 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>.
+# Licensed under CC-BY-SA <http://creativecommons.org/licenses/by-sa/4.0/>.
 #-
 
 import sys
