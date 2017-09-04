@@ -31,12 +31,12 @@
 #
 # where each criterion is one of
 #
-#     --sincetime=time
-#     --beforetime=time
-#     --localport=port
-#     --remoteaddr=addr
-#     --remoteport=port
-#     --direction=out|in
+#     sincetime=time
+#     beforetime=time
+#     localport=port
+#     remoteaddr=addr
+#     remoteport=port
+#     direction=out|in
 #
 # Multiple criteria in the same extractionspec are anded together,
 # while multiple extraction specs are ored together.
