@@ -310,7 +310,7 @@ def run_connections() :
                     addrinfo_totry = iter(addrinfo_totry)
                     while True :
                         try :
-                            addrinfo = addrinfo_totry.next()
+                            addrinfo = next(addrinfo_totry)
                         except StopIteration :
                             raise RuntimeError \
                               (
@@ -384,37 +384,36 @@ def do_extractions(fromfile) :
             #end for
             try_criteria = iter(criteria)
             while True :
-                try :
-                    criterion = try_criteria.next()
-                except StopIteration :
+                criterion = next(try_criteria, None)
+                if criterion == None :
                     match = False
                     break
-                #end try
+                #end if
                 if (
-                        (not criterion.has_key("sincetime") or items["time"] >= criterion["sincetime"])
+                        ("sincetime" not in criterion or items["time"] >= criterion["sincetime"])
                     and
-                        (not criterion.has_key("beforetime") or items["time"] < criterion["beforetime"])
+                        ("beforetime" not in criterion or items["time"] < criterion["beforetime"])
                     and
                             (
-                                not criterion.has_key("localport")
+                                "localport" not in criterion
                             or
                                 items["localport"] == criterion["localport"]
                             )
                     and
                         (
-                            not criterion.has_key("remoteport")
+                            "remoteport" not in criterion
                         or
                             items["remoteport"] == criterion["remoteport"]
                         )
                     and
                         (
-                            not criterion.has_key("remoteaddr")
+                            "remoteaddr" not in criterion
                         or
                             items["remoteaddr"] == criterion["remoteaddr"]
                         )
                     and
                         (
-                            not criterion.has_key("direction")
+                            "direction" not in criterion
                         or
                             items["direction"] == ("<", ">")[criterion["direction"]]
                         )
@@ -470,7 +469,7 @@ for keyword, value in opts :
         #end if
         localport = int(items[0])
         remoteport = int(items[2])
-        if relay.has_key(localport) :
+        if localport in relay :
             raise getopt.GetoptError("duplicate entry for local port %d" % localport)
         #end if
         relay[localport] = \
