@@ -86,267 +86,267 @@ directions = (("local", "remote"), ("remote", "local"))
   # for iterating over connection directions
 
 def logprefix(localport, remoteaddr) :
-	"""returns a common prefix for logfile lines, including a timestamp."""
-	now = time.time()
-	return \
-		(
-			"%.6f:%d/%s:%d"
-		%
-			(now, localport, remoteaddr[0], remoteaddr[1])
-		)
+    """returns a common prefix for logfile lines, including a timestamp."""
+    now = time.time()
+    return \
+        (
+            "%.6f:%d/%s:%d"
+        %
+            (now, localport, remoteaddr[0], remoteaddr[1])
+        )
 #end logprefix
 
 def logdata(localport, remoteaddr, outgoing, data) :
-	"""logs data passing through a connection, with readable representation of
-	non-printable characters."""
-	prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
-	data = quopri.encodestring(data).replace("=\015\012", "=\n").replace("\015", "=0D")
-	  # quopri doesn't encode carriage returns
-	while len(data) != 0 :
-		pos = data.find("\n")
-		if pos < 0 :
-			data += "=\n" # no newline, add soft newline
-			pos = len(data)
-		else :
-			pos += 1 # include newline
-		#end if
-		line = data[:pos]
-		data = data[pos:]
-		log.write(prefix + line)
-	#end while
+    """logs data passing through a connection, with readable representation of
+    non-printable characters."""
+    prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
+    data = quopri.encodestring(data).replace("=\015\012", "=\n").replace("\015", "=0D")
+      # quopri doesn't encode carriage returns
+    while len(data) != 0 :
+        pos = data.find("\n")
+        if pos < 0 :
+            data += "=\n" # no newline, add soft newline
+            pos = len(data)
+        else :
+            pos += 1 # include newline
+        #end if
+        line = data[:pos]
+        data = data[pos:]
+        log.write(prefix + line)
+    #end while
 #end logdata
 
 def logdiag(localport, remoteaddr, data) :
-	"""logs a diagnostic message concerning a connection."""
-	prefix = logprefix(localport, remoteaddr) + "!"
-	for line in data.rstrip("\n").split("\n") :
-		log.write(prefix + line + "\n")
-	#end for
+    """logs a diagnostic message concerning a connection."""
+    prefix = logprefix(localport, remoteaddr) + "!"
+    for line in data.rstrip("\n").split("\n") :
+        log.write(prefix + line + "\n")
+    #end for
 #end logdiag
 
 def run_connections() :
-	"""runs the specified connections and logs all data transmissions."""
-	for localport, item in relay.items() :
-		# open listeners on all local sockets
-		item["listen"] = socket.socket \
-		  (
-			(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
-			socket.SOCK_STREAM
-		  )
-		item["listen"].bind \
-		  (
-			(
-				(("0.0.0.0", "127.0.0.1")[loopback_only], ("::", "::1")[loopback_only])[item["inet6"]],
-				localport,
-			)
-		  )
-		item["listen"].listen(socket.SOMAXCONN)
-	#end for
-	try :
-		while True :
-			# run listeners and data transfers
-			readable = []
-			writable = []
-			trouble = []
-			for item in relay.values() :
-				readable.append(item["listen"])
-				trouble.append(item["listen"])
-				for connection in item["connected"] :
-					for (this, other) in directions :
-						if not connection[this]["eof"] and len(connection[other]["buf"]) < maxbuf :
-							readable.append(connection[this]["socket"])
-						#end if
-						if len(connection[this]["buf"]) != 0 :
-							writable.append(connection[this]["socket"])
-						#end if
-						trouble.append(connection[this]["socket"])
-					#end for
-				#end for
-			#end for
-			(readable, writable, trouble) = select.select(readable, writable, trouble, 5.0)
-			log.flush() # in case of abort
-			readable = set(readable)
-			writable = set(writable)
-			trouble = set(trouble)
-			# NYI check for trouble
-			for localport, item in relay.items() :
-			  # give highest priority to writes
-				new_connected = []
-				for connection in item["connected"] :
-					connection_ok = True # initial assumption
-					for (this, other) in directions :
-						if connection[this]["socket"] in writable :
-							try :
-								nrbytes = connection[this]["socket"].send(connection[this]["buf"])
-							except socket.error, (ErrNo, Msg) :
-								logdiag \
-								  (
-									localport,
-									connection["addr"],
-										"error %d -- %s writing to %s"
-									%
-										(ErrNo, Msg, this)
-								  )
-								nrbytes = None
-							#end try
-							if nrbytes != None :
-								connection[this]["buf"] = connection[this]["buf"][nrbytes:]
-								if len(connection[this]["buf"]) == 0 and connection[other]["eof"] :
-									connection[this]["socket"].shutdown(socket.SHUT_WR)
-									  # forward delayed EOF to this end
-									connection[this]["writeend"] = True
-								#end if
-							else :
-								connection_ok = False
-							#end if
-						#end if
-					#end for
-					if connection_ok :
-						new_connected.append(connection)
-					else :
-						connection["local"]["socket"].close()
-						connection["remote"]["socket"].close()
-					#end if
-				#end for
-				item["connected"] = new_connected
-			#end for
-			for localport, item in relay.items() :
-			  # give next priority to reads
-				new_connected = []
-				for connection in item["connected"] :
-					connection_ok = True # initial assumption
-					for (this, other) in directions :
-						if connection[this]["socket"] in readable :
-							try :
-								data = connection[this]["socket"].recv \
-								  (
-									maxbuf - len(connection[other]["buf"])
-								  )
-							except socket.error, (ErrNo, Msg) :
-								logdiag \
-								  (
-									localport,
-									connection["addr"],
-										"error %d -- %s reading from %s"
-									%
-										(ErrNo, Msg, this)
-								  )
-								data = None
-							#end try
-							if data != None :
-								if len(data) != 0 :
-									connection[other]["buf"] += data
-									logdata(localport, connection["addr"], this == "local", data)
-								else :
-									logdiag(localport, connection["addr"], "%s EOF" % this)
-									if len(connection[other]["buf"]) == 0 :
-										connection[other]["socket"].shutdown(socket.SHUT_WR)
-										  # forward EOF to other end
-										connection[other]["writeend"] = True
-									# else wait until buf is emptied before forwarding EOF
-									#end if
-									connection[this]["eof"] = True
-								#end if
-							else :
-								connection_ok = False
-							#end if
-						#end if
-					#end for
-					if (
-							connection_ok
-						and
-							not
-								(
-									connection["local"]["eof"]
-								and
-									connection["remote"]["eof"]
-								and
-									len(connection["local"]["buf"]) == 0
-								and
-									len(connection["remote"]["buf"]) == 0
-								)
-					) :
-						new_connected.append(connection)
-					else :
-						# EOF sent and received in both directions, nothing further to do
-						logdiag(localport, connection["addr"], "close")
-						connection["local"]["socket"].close()
-						connection["remote"]["socket"].close()
-					#end if
-				#end for
-				item["connected"] = new_connected
-			#end for
-			for localport, item in relay.items() :
-			  # give lowest priority to accepting new connections
-				if item["listen"] in readable :
-					(local, addr) = item["listen"].accept()
-					logdiag(localport, addr, "connect")
-					remote = socket.socket \
-					  (
-						(socket.AF_INET, socket.AF_INET6)[item["inet6"]],
-						socket.SOCK_STREAM
-					  )
-					connection = \
-						{
-							"addr" : addr,
-							"local" :
-								{
-									"socket" : local,
-									"buf" : "",
-									"eof" : False,
-									"writeend" : False,
-								},
-							"remote" :
-								{
-									"socket" : remote,
-									"buf" : "",
-									"eof" : False,
-									"writeend" : False,
-								},
-						}
-					addrinfo_totry = list(item["addrinfo"])
-					random.shuffle(addrinfo_totry)
-					addrinfo_totry = iter(addrinfo_totry)
-					while True :
-						try :
-							addrinfo = addrinfo_totry.next()
-						except StopIteration :
-							raise RuntimeError \
-							  (
-								"can't open %s:%d" % (item["remotehost"], item["remoteport"])
-							  )
-						#end try
-						try :
-							remote.connect(addrinfo[4])
-							break
-						except socket.error, (ErrNo, Msg) :
-							logdiag \
-							  (
-								localport,
-								addr,
-									"error %d -- %s connecting to %s"
-								%
-									(ErrNo, Msg, repr(addrinfo))
-							  )
-						#end try
-					#end while
-					item["connected"].append(connection)
-				#end if
-			#end for
-		#end while
-	except KeyboardInterrupt :
-		pass
-	#end try
-	for item in relay.values() :
-		# shut everything down
-		for connection in item["connected"] :
-			connection["local"]["socket"].close()
-			connection["remote"]["socket"].close()
-		#end for
-		if item["listen"] !=  None :
-			item["listen"].close()
-		#end if
-	#end for
+    """runs the specified connections and logs all data transmissions."""
+    for localport, item in relay.items() :
+        # open listeners on all local sockets
+        item["listen"] = socket.socket \
+          (
+            (socket.AF_INET, socket.AF_INET6)[item["inet6"]],
+            socket.SOCK_STREAM
+          )
+        item["listen"].bind \
+          (
+            (
+                (("0.0.0.0", "127.0.0.1")[loopback_only], ("::", "::1")[loopback_only])[item["inet6"]],
+                localport,
+            )
+          )
+        item["listen"].listen(socket.SOMAXCONN)
+    #end for
+    try :
+        while True :
+            # run listeners and data transfers
+            readable = []
+            writable = []
+            trouble = []
+            for item in relay.values() :
+                readable.append(item["listen"])
+                trouble.append(item["listen"])
+                for connection in item["connected"] :
+                    for (this, other) in directions :
+                        if not connection[this]["eof"] and len(connection[other]["buf"]) < maxbuf :
+                            readable.append(connection[this]["socket"])
+                        #end if
+                        if len(connection[this]["buf"]) != 0 :
+                            writable.append(connection[this]["socket"])
+                        #end if
+                        trouble.append(connection[this]["socket"])
+                    #end for
+                #end for
+            #end for
+            (readable, writable, trouble) = select.select(readable, writable, trouble, 5.0)
+            log.flush() # in case of abort
+            readable = set(readable)
+            writable = set(writable)
+            trouble = set(trouble)
+            # NYI check for trouble
+            for localport, item in relay.items() :
+              # give highest priority to writes
+                new_connected = []
+                for connection in item["connected"] :
+                    connection_ok = True # initial assumption
+                    for (this, other) in directions :
+                        if connection[this]["socket"] in writable :
+                            try :
+                                nrbytes = connection[this]["socket"].send(connection[this]["buf"])
+                            except socket.error, (ErrNo, Msg) :
+                                logdiag \
+                                  (
+                                    localport,
+                                    connection["addr"],
+                                        "error %d -- %s writing to %s"
+                                    %
+                                        (ErrNo, Msg, this)
+                                  )
+                                nrbytes = None
+                            #end try
+                            if nrbytes != None :
+                                connection[this]["buf"] = connection[this]["buf"][nrbytes:]
+                                if len(connection[this]["buf"]) == 0 and connection[other]["eof"] :
+                                    connection[this]["socket"].shutdown(socket.SHUT_WR)
+                                      # forward delayed EOF to this end
+                                    connection[this]["writeend"] = True
+                                #end if
+                            else :
+                                connection_ok = False
+                            #end if
+                        #end if
+                    #end for
+                    if connection_ok :
+                        new_connected.append(connection)
+                    else :
+                        connection["local"]["socket"].close()
+                        connection["remote"]["socket"].close()
+                    #end if
+                #end for
+                item["connected"] = new_connected
+            #end for
+            for localport, item in relay.items() :
+              # give next priority to reads
+                new_connected = []
+                for connection in item["connected"] :
+                    connection_ok = True # initial assumption
+                    for (this, other) in directions :
+                        if connection[this]["socket"] in readable :
+                            try :
+                                data = connection[this]["socket"].recv \
+                                  (
+                                    maxbuf - len(connection[other]["buf"])
+                                  )
+                            except socket.error, (ErrNo, Msg) :
+                                logdiag \
+                                  (
+                                    localport,
+                                    connection["addr"],
+                                        "error %d -- %s reading from %s"
+                                    %
+                                        (ErrNo, Msg, this)
+                                  )
+                                data = None
+                            #end try
+                            if data != None :
+                                if len(data) != 0 :
+                                    connection[other]["buf"] += data
+                                    logdata(localport, connection["addr"], this == "local", data)
+                                else :
+                                    logdiag(localport, connection["addr"], "%s EOF" % this)
+                                    if len(connection[other]["buf"]) == 0 :
+                                        connection[other]["socket"].shutdown(socket.SHUT_WR)
+                                          # forward EOF to other end
+                                        connection[other]["writeend"] = True
+                                    # else wait until buf is emptied before forwarding EOF
+                                    #end if
+                                    connection[this]["eof"] = True
+                                #end if
+                            else :
+                                connection_ok = False
+                            #end if
+                        #end if
+                    #end for
+                    if (
+                            connection_ok
+                        and
+                            not
+                                (
+                                    connection["local"]["eof"]
+                                and
+                                    connection["remote"]["eof"]
+                                and
+                                    len(connection["local"]["buf"]) == 0
+                                and
+                                    len(connection["remote"]["buf"]) == 0
+                                )
+                    ) :
+                        new_connected.append(connection)
+                    else :
+                        # EOF sent and received in both directions, nothing further to do
+                        logdiag(localport, connection["addr"], "close")
+                        connection["local"]["socket"].close()
+                        connection["remote"]["socket"].close()
+                    #end if
+                #end for
+                item["connected"] = new_connected
+            #end for
+            for localport, item in relay.items() :
+              # give lowest priority to accepting new connections
+                if item["listen"] in readable :
+                    (local, addr) = item["listen"].accept()
+                    logdiag(localport, addr, "connect")
+                    remote = socket.socket \
+                      (
+                        (socket.AF_INET, socket.AF_INET6)[item["inet6"]],
+                        socket.SOCK_STREAM
+                      )
+                    connection = \
+                        {
+                            "addr" : addr,
+                            "local" :
+                                {
+                                    "socket" : local,
+                                    "buf" : "",
+                                    "eof" : False,
+                                    "writeend" : False,
+                                },
+                            "remote" :
+                                {
+                                    "socket" : remote,
+                                    "buf" : "",
+                                    "eof" : False,
+                                    "writeend" : False,
+                                },
+                        }
+                    addrinfo_totry = list(item["addrinfo"])
+                    random.shuffle(addrinfo_totry)
+                    addrinfo_totry = iter(addrinfo_totry)
+                    while True :
+                        try :
+                            addrinfo = addrinfo_totry.next()
+                        except StopIteration :
+                            raise RuntimeError \
+                              (
+                                "can't open %s:%d" % (item["remotehost"], item["remoteport"])
+                              )
+                        #end try
+                        try :
+                            remote.connect(addrinfo[4])
+                            break
+                        except socket.error, (ErrNo, Msg) :
+                            logdiag \
+                              (
+                                localport,
+                                addr,
+                                    "error %d -- %s connecting to %s"
+                                %
+                                    (ErrNo, Msg, repr(addrinfo))
+                              )
+                        #end try
+                    #end while
+                    item["connected"].append(connection)
+                #end if
+            #end for
+        #end while
+    except KeyboardInterrupt :
+        pass
+    #end try
+    for item in relay.values() :
+        # shut everything down
+        for connection in item["connected"] :
+            connection["local"]["socket"].close()
+            connection["remote"]["socket"].close()
+        #end for
+        if item["listen"] !=  None :
+            item["listen"].close()
+        #end if
+    #end for
 #end run_connections
 
 #+
@@ -356,77 +356,77 @@ def run_connections() :
 criteria = [] # list of dictionaries
 
 valid_criteria = \
-	{ # list of valid keys in criteria dictionaries, and corresponding validation functions
-		"sincetime" : int,
-		"beforetime" : int,
-		"localport" : int, # no range check!
-		"remoteaddr" : lambda x : x, # no syntax check!
-		"remoteport" : int, # no range check!
-		"direction" : lambda x : {"out" : True, "in" : False}[x],
-	}
+    { # list of valid keys in criteria dictionaries, and corresponding validation functions
+        "sincetime" : int,
+        "beforetime" : int,
+        "localport" : int, # no range check!
+        "remoteaddr" : lambda x : x, # no syntax check!
+        "remoteport" : int, # no range check!
+        "direction" : lambda x : {"out" : True, "in" : False}[x],
+    }
 
 def do_extractions(fromfile) :
-	"""decodes and outputs each line of fromfile matching the specified criteria."""
-	lineformat = re.compile \
-	  (
-		r"^(?P<time>\d+\.\d+)\:(?P<localport>\d+)\/(?P<remoteaddr>[0-9\.]+)" # IPv6 addrs NYI
-		r"\:(?P<remoteport>\d+)(?P<direction>.)(?P<data>.*)$",
-		re.DOTALL
-	  )
-	for line in fromfile :
-		items = lineformat.search(line)
-		if items != None :
-			items = items.groupdict()
-			items["time"] = float(items["time"])
-			for key in ("localport", "remoteport") :
-				items[key] = int(items[key])
-			#end for
-			try_criteria = iter(criteria)
-			while True :
-				try :
-					criterion = try_criteria.next()
-				except StopIteration :
-					match = False
-					break
-				#end try
-				if (
-						(not criterion.has_key("sincetime") or items["time"] >= criterion["sincetime"])
-					and
-						(not criterion.has_key("beforetime") or items["time"] < criterion["beforetime"])
-					and
-							(
-								not criterion.has_key("localport")
-							or
-								items["localport"] == criterion["localport"]
-							)
-					and
-						(
-							not criterion.has_key("remoteport")
-						or
-							items["remoteport"] == criterion["remoteport"]
-						)
-					and
-						(
-							not criterion.has_key("remoteaddr")
-						or
-							items["remoteaddr"] == criterion["remoteaddr"]
-						)
-					and
-						(
-							not criterion.has_key("direction")
-						or
-							items["direction"] == ("<", ">")[criterion["direction"]]
-						)
-				) :
-					match = True
-					break
-				#end if
-			#end while
-			if match :
-				sys.stdout.write(quopri.decodestring(items["data"]))
-			#end if
-		#end if
-	#end for
+    """decodes and outputs each line of fromfile matching the specified criteria."""
+    lineformat = re.compile \
+      (
+        r"^(?P<time>\d+\.\d+)\:(?P<localport>\d+)\/(?P<remoteaddr>[0-9\.]+)" # IPv6 addrs NYI
+        r"\:(?P<remoteport>\d+)(?P<direction>.)(?P<data>.*)$",
+        re.DOTALL
+      )
+    for line in fromfile :
+        items = lineformat.search(line)
+        if items != None :
+            items = items.groupdict()
+            items["time"] = float(items["time"])
+            for key in ("localport", "remoteport") :
+                items[key] = int(items[key])
+            #end for
+            try_criteria = iter(criteria)
+            while True :
+                try :
+                    criterion = try_criteria.next()
+                except StopIteration :
+                    match = False
+                    break
+                #end try
+                if (
+                        (not criterion.has_key("sincetime") or items["time"] >= criterion["sincetime"])
+                    and
+                        (not criterion.has_key("beforetime") or items["time"] < criterion["beforetime"])
+                    and
+                            (
+                                not criterion.has_key("localport")
+                            or
+                                items["localport"] == criterion["localport"]
+                            )
+                    and
+                        (
+                            not criterion.has_key("remoteport")
+                        or
+                            items["remoteport"] == criterion["remoteport"]
+                        )
+                    and
+                        (
+                            not criterion.has_key("remoteaddr")
+                        or
+                            items["remoteaddr"] == criterion["remoteaddr"]
+                        )
+                    and
+                        (
+                            not criterion.has_key("direction")
+                        or
+                            items["direction"] == ("<", ">")[criterion["direction"]]
+                        )
+                ) :
+                    match = True
+                    break
+                #end if
+            #end while
+            if match :
+                sys.stdout.write(quopri.decodestring(items["data"]))
+            #end if
+        #end if
+    #end for
 #end do_extractions
 
 #+
@@ -435,78 +435,78 @@ def do_extractions(fromfile) :
 
 (opts, args) = getopt.getopt \
   (
-	sys.argv[1:],
-	"",
-	["external", "extract=", "relay="]
+    sys.argv[1:],
+    "",
+    ["external", "extract=", "relay="]
   )
 loopback_only = True
 for keyword, value in opts :
-	if keyword == "--external" :
-		loopback_only = False
-	elif keyword == "--extract" :
-		criterion = {}
-		for term in value.split(":") :
-			keyword, value = term.split("=")
-			criterion[keyword] = valid_criteria[keyword](value)
-		#end for
-		criteria.append(criterion)
-	elif keyword == "--relay" :
-		if hasattr(value, "partition") :
-			# allow for embedded colons in an IPv6 address
-			value = value.partition(":")
-			items = () # in case of parse failure
-			if value[1] == ":" :
-				value = (value[0],) + value[2].rpartition(":")
-				if value[2] == ":" :
-					items = (value[0], value[1].lstrip("[").rstrip("]"), value[3])
-				#end if
-			#end if
-		else :
-			items = value.split(":")
-		#end if
-		if len(items) != 3 :
-			raise getopt.GetoptError("usage: --relay=localport:remoteaddr:remoteport")
-		#end if
-		localport = int(items[0])
-		remoteport = int(items[2])
-		if relay.has_key(localport) :
-			raise getopt.GetoptError("duplicate entry for local port %d" % localport)
-		#end if
-		relay[localport] = \
-			{
-				"remotehost" : items[1],
-				"remoteport" : remoteport,
-				"addrinfo" :
-					[
-						i for i in socket.getaddrinfo(items[1], remoteport)
-							if i[1] == socket.SOCK_STREAM
-					],
-				"listen" : None,
-				"connected" : [],
-			}
-		relay[localport]["inet6"] = relay[localport]["addrinfo"][0][0] == socket.AF_INET6
-		  # assuming I won't get a mixture of v4 and v6!
-	#end if
+    if keyword == "--external" :
+        loopback_only = False
+    elif keyword == "--extract" :
+        criterion = {}
+        for term in value.split(":") :
+            keyword, value = term.split("=")
+            criterion[keyword] = valid_criteria[keyword](value)
+        #end for
+        criteria.append(criterion)
+    elif keyword == "--relay" :
+        if hasattr(value, "partition") :
+            # allow for embedded colons in an IPv6 address
+            value = value.partition(":")
+            items = () # in case of parse failure
+            if value[1] == ":" :
+                value = (value[0],) + value[2].rpartition(":")
+                if value[2] == ":" :
+                    items = (value[0], value[1].lstrip("[").rstrip("]"), value[3])
+                #end if
+            #end if
+        else :
+            items = value.split(":")
+        #end if
+        if len(items) != 3 :
+            raise getopt.GetoptError("usage: --relay=localport:remoteaddr:remoteport")
+        #end if
+        localport = int(items[0])
+        remoteport = int(items[2])
+        if relay.has_key(localport) :
+            raise getopt.GetoptError("duplicate entry for local port %d" % localport)
+        #end if
+        relay[localport] = \
+            {
+                "remotehost" : items[1],
+                "remoteport" : remoteport,
+                "addrinfo" :
+                    [
+                        i for i in socket.getaddrinfo(items[1], remoteport)
+                            if i[1] == socket.SOCK_STREAM
+                    ],
+                "listen" : None,
+                "connected" : [],
+            }
+        relay[localport]["inet6"] = relay[localport]["addrinfo"][0][0] == socket.AF_INET6
+          # assuming I won't get a mixture of v4 and v6!
+    #end if
 #end for
 if (len(relay) == 0) == (len(criteria) == 0) :
-	raise getopt.GetoptError \
-	  (
-		"either specify one or more --relay items or one or more --extract items"
-	  )
+    raise getopt.GetoptError \
+      (
+        "either specify one or more --relay items or one or more --extract items"
+      )
 #end if
 if len(relay) != 0 :
-	if len(args) != 0 :
-		raise getopt.GetoptError("no arguments expected for relay")
-	#end if
-	run_connections()
+    if len(args) != 0 :
+        raise getopt.GetoptError("no arguments expected for relay")
+    #end if
+    run_connections()
 elif len(criteria) != 0 :
-	if len(args) != 0 :
-		if len(args) > 1 :
-			raise getopt.GetoptError("only one argument expected for extract")
-		#end if
-		fromfile = open(args[0], "r")
-	else :
-		fromfile = sys.stdin
-	#end if
-	do_extractions(fromfile)
+    if len(args) != 0 :
+        if len(args) > 1 :
+            raise getopt.GetoptError("only one argument expected for extract")
+        #end if
+        fromfile = open(args[0], "r")
+    else :
+        fromfile = sys.stdin
+    #end if
+    do_extractions(fromfile)
 #end if
