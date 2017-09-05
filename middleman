@@ -4,14 +4,14 @@
 # everything that goes over the connection. Invoke it in logging
 # mode as follows:
 #
-#     middleman [--external] relayspec [relayspec...]
+#     middleman [--external] «relayspec» [«relayspec»...]
 #
-# where each relayspec is of the form
+# where each «relayspec» is of the form
 #
-#     --relay=localport:remoteaddr:remoteport
+#     --relay=«localport»:«remoteaddr»:«remoteport»
 #
-# where localport is the local port to listen on for connections,
-# and remoteaddr and remoteport specify the host and port to relay
+# where «localport» is the local port to listen on for connections,
+# and «remoteaddr» and «remoteport» specify the host and port to relay
 # the connection to. --external indicates that local ports should be
 # opened on network interfaces visible to other machines; if omitted,
 # they are opened only on the loopback interface.
@@ -23,19 +23,19 @@
 # parts from a previously-written logfile. Invoke it in this mode
 # as follows:
 #
-#     middleman extractionspec [extractionspec ...] [logfile]
+#     middleman «extractionspec» [«extractionspec» ...] [«logfile»]
 #
-# where each extractionspec is of the form
+# where each «extractionspec» is of the form
 #
-#     --extract=criterion[:criterion...]
+#     --extract=«criterion»[:«criterion»...]
 #
-# where each criterion is one of
+# where each «criterion» is one of
 #
-#     sincetime=time
-#     beforetime=time
-#     localport=port
-#     remoteaddr=addr
-#     remoteport=port
+#     sincetime=«time»
+#     beforetime=«time»
+#     localport=«port»
+#     remoteaddr=«addr»
+#     remoteport=«port»
 #     direction=out|in
 #
 # Multiple criteria in the same extractionspec are anded together,
