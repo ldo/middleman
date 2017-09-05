@@ -87,7 +87,7 @@ directions = (("local", "remote"), ("remote", "local"))
   # for iterating over connection directions
 
 def logprefix(localport, remoteaddr) :
-    """returns a common prefix for logfile lines, including a timestamp."""
+    "returns a common prefix for logfile lines, including a timestamp."
     now = time.time()
     return \
         (
@@ -98,8 +98,8 @@ def logprefix(localport, remoteaddr) :
 #end logprefix
 
 def logdata(localport, remoteaddr, outgoing, data) :
-    """logs data passing through a connection, with readable representation of
-    non-printable characters."""
+    "logs data passing through a connection, with readable representation of" \
+    " non-printable characters."
     prefix = logprefix(localport, remoteaddr) + ("<", ">")[outgoing]
     data = quopri.encodestring(data).decode().replace("=\015\012", "=\n").replace("\015", "=0D")
       # quopri doesn't encode carriage returns
@@ -118,7 +118,7 @@ def logdata(localport, remoteaddr, outgoing, data) :
 #end logdata
 
 def logdiag(localport, remoteaddr, data) :
-    """logs a diagnostic message concerning a connection."""
+    "logs a diagnostic message concerning a connection."
     prefix = logprefix(localport, remoteaddr) + "!"
     for line in data.rstrip("\n").split("\n") :
         log.write(prefix + line + "\n")
@@ -126,7 +126,7 @@ def logdiag(localport, remoteaddr, data) :
 #end logdiag
 
 def run_connections() :
-    """runs the specified connections and logs all data transmissions."""
+    "runs the specified connections and logs all data transmissions."
     for localport, item in relay.items() :
         # open listeners on all local sockets
         item["listen"] = socket.socket \
@@ -367,7 +367,7 @@ valid_criteria = \
     }
 
 def do_extractions(fromfile) :
-    """decodes and outputs each line of fromfile matching the specified criteria."""
+    "decodes and outputs each line of fromfile matching the specified criteria."
     lineformat = re.compile \
       (
         r"^(?P<time>\d+\.\d+)\:(?P<localport>\d+)\/(?P<remoteaddr>[0-9\.]+)" # IPv6 addrs NYI
