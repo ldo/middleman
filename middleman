@@ -358,8 +358,8 @@ criteria = [] # list of dictionaries
 
 valid_criteria = \
     { # list of valid keys in criteria dictionaries, and corresponding validation functions
-        "sincetime" : int,
-        "beforetime" : int,
+        "sincetime" : float,
+        "beforetime" : float,
         "localport" : int, # no range check!
         "remoteaddr" : lambda x : x, # no syntax check!
         "remoteport" : int, # no range check!
